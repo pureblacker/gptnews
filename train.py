@@ -7,7 +7,7 @@ import logging
 from transformers import GPT2Config,GPT2LMHeadModel,BertTokenizer,AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from tqdm import tqdm, trange
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from model import  MyGPT2LMHeadModel
 from data_set import GPT2Dataset
 
