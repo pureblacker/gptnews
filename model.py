@@ -1,7 +1,7 @@
 from transformers import GPT2PreTrainedModel,GPT2Model
 import  torch.nn as nn 
 
-class GPT2LMHeadModel(GPT2PreTrainedModel):
+class MyGPT2LMHeadModel(GPT2PreTrainedModel):
     def __init__(self,config):
         super().__init__(config)
         self.transformer = GPT2Model(config)
