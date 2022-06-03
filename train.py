@@ -11,13 +11,13 @@ from tqdm import tqdm, trange
 from model import  MyGPT2LMHeadModel
 from data_set import GPT2Dataset
 
-# logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-#                     datefmt='%m/%d/%Y %H:%M:%S',
-#                     level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def train(model,device,train_data,test_data,args):
-    # tb_write=SummaryWriter()
+    tb_write=SummaryWriter()
     if args.gradient_accumulation_steps<1:
         raise ValueError("Gradient accumulation参数")
     train_batch_size=int(args.train_batch_size/args.gradient_accumulation_steps)
