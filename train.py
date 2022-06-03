@@ -4,15 +4,12 @@ import random
 import numpy as np
 import argparse
 import logging
-from transformers import GPT2Config,GPT2LMHeadModel
-from transformers import BertTokenizer
-from data_set import GPT2Dataset, collate_func
+from transformers import GPT2Config,GPT2LMHeadModel,BertTokenizer,AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm, trange
 from torch.utils.tensorboard import SummaryWriter
 from model import  GPT2LMHeadModel
-
+from data_set import GPT2Dataset
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt='%m/%d/%Y %H:%M:%S',
@@ -26,7 +23,7 @@ def train(model,device,train_data,test_data,args):
     train_batch_size=int(args.train_batch_size/args.gradient_accumulation_steps)
     train_sampler=RandomSampler(train_data)
     train_data_loader=DataLoader(train_data,sampler=train_sampler,
-                                batch_size=train_batch_size,collate_fn=collate_func)
+                                batch_size=train_batch_size)
     total_steps=int(len(train_data_loader)*args.num_train_epochs/args.gradient_accumulation_steps)
     logger.info("总训步数{}".format(total_steps))
     model.to(device)
@@ -44,7 +41,7 @@ def train(model,device,train_data,test_data,args):
                                                 num_training_steps=total_steps)
     torch.cuda.empty_cache()
     model.train()
-    title_id=train_data.title_id
+    title_id=1   #..........................................
     tr_loss, logging_loss, min_loss = 0.0, 0.0, 0.0
     global_step=0
     for iepoch in trange(0, int(args.num_train_epochs), desc="Epoch", disable=False):
@@ -81,6 +78,9 @@ def train(model,device,train_data,test_data,args):
                     eval_loss = evaluate(model, device, test_data, args)
                     tb_write.add_scalar("test_loss", eval_loss, global_step)
                     model.train()
+
+            lm_logits=outputs[1]
+            print(lm_logits[...,:-1,:])
         # 每个epoch进行完，则保存模型
         output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
         model_to_save = model.module if hasattr(model, "module") else model
@@ -103,7 +103,7 @@ def evaluate(model, device, test_data, args):
     test_data_loader = DataLoader(test_data, sampler=test_sampler,
                                   batch_size=args.test_batch_size, collate_fn=collate_func)
     iter_bar = tqdm(test_data_loader, desc="iter", disable=False)
-    title_id = test_data.title_id
+    title_id = 1            #....................
     total_loss, total = 0.0, 0.0
     # 进行测试
     for step, batch in enumerate(iter_bar):
@@ -127,13 +127,13 @@ def set_args():
     """设置训练模型所需参数"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', default='0', type=str, help='设置训练或测试时使用的显卡')
-    parser.add_argument('--config_path', default='config/config.json', type=str, help='模型参数配置信息')
+    parser.add_argument('--config_path', default='model/config.json', type=str, help='模型参数配置信息')
     parser.add_argument('--vocab_path', default='vocab/vocab.txt', type=str, help='词表，该词表为小词表，并增加了一些新的标记')
-    parser.add_argument('--train_file_path', default='data_dir/train_data.json', type=str, help='新闻标题生成的训练数据')
-    parser.add_argument('--test_file_path', default='data_dir/test_data.json', type=str, help='新闻标题生成的测试数据')
-    parser.add_argument('--pretrained_model_path', default=None, type=str, help='预训练的GPT2模型的路径')
+    parser.add_argument('--train_file_path', default='data_dir/train.json', type=str, help='新闻标题生成的训练数据')
+    parser.add_argument('--test_file_path', default='data_dir/dev.json', type=str, help='新闻标题生成的测试数据')
+    parser.add_argument('--pretrained_model_path', default='model', type=str, help='预训练的GPT2模型的路径')
     parser.add_argument('--data_dir', default='data_dir', type=str, help='生成缓存数据的存放路径')
-    parser.add_argument('--num_train_epochs', default=5, type=int, help='模型训练的轮数')
+    parser.add_argument('--num_train_epochs', default=1, type=int, help='模型训练的轮数')
     parser.add_argument('--train_batch_size', default=16, type=int, help='训练时每个batch的大小')
     parser.add_argument('--test_batch_size', default=8, type=int, help='测试时每个batch的大小')
     parser.add_argument('--learning_rate', default=1e-4, type=float, help='模型训练时的学习率')
@@ -145,7 +145,7 @@ def set_args():
     parser.add_argument('--max_grad_norm', default=1.0, type=float, help='')
     parser.add_argument('--output_dir', default='output_dir/', type=str, help='模型输出路径')
     parser.add_argument('--seed', type=int, default=2020, help='随机种子')
-    parser.add_argument('--max_len', type=int, default=512, help='输入模型的最大长度，要比config中n_ctx小')
+    parser.add_argument('--max_len', type=int, default=1024, help='输入模型的最大长度，要比config中n_ctx小')
     parser.add_argument('--title_max_len', type=int, default=32, help='生成标题的最大长度，要比max_len小')
     return parser.parse_args()
 
