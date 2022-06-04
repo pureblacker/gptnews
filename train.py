@@ -101,7 +101,7 @@ def evaluate(model, device, test_data, args):
     # 构造测试集的DataLoader
     test_sampler = SequentialSampler(test_data)
     test_data_loader = DataLoader(test_data, sampler=test_sampler,
-                                  batch_size=args.test_batch_size, collate_fn=collate_func)
+                                  batch_size=args.test_batch_size)
     iter_bar = tqdm(test_data_loader, desc="iter", disable=False)
     title_id = 1            #....................
     total_loss, total = 0.0, 0.0
