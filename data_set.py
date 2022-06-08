@@ -31,15 +31,14 @@ class GPT2Dataset(Dataset):
                     return_token_type_ids=True,
                     return_tensors='pt',
                 )
-                input_ids=encoded['input_ids']
-                token_type_ids=encoded['token_type_ids']
-
+                input_ids=encoded['input_ids'].reshape(self.max_len,)
+                token_type_ids=encoded['token_type_ids'].reshape(self.max_len,)
+                
                 # 判断input_ids与token_type_ids长度是否一致
-                assert input_ids.shape[1] == token_type_ids.shape[1]
+                assert len(input_ids) == len(token_type_ids)
 
                 # 判断input_ids长度是否小于等于最大长度
-                assert input_ids.shape[1]  <= self.max_len
-
+                assert len(input_ids)  <= self.max_len
                 self.data_set.append({"input_ids":input_ids,"token_type_ids":token_type_ids})
         return self.data_set   #返回的是整个训练集或者测试集的东西
     '''
@@ -57,7 +56,7 @@ class GPT2Dataset(Dataset):
         return len(self.data_set)
 
     def __getitem__(self, idx):
-        return self.data_set[idx]   #返回一个字典
+        return self.data_set[idx]  #返回一个字典
         '''
         {
             "input_ids":input_ids,

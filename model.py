@@ -7,7 +7,7 @@ class MyGPT2LMHeadModel(GPT2PreTrainedModel):
         self.transformer = GPT2Model(config)
         # self.lm_head为将GPT2Model(config)计算输出的hidden_states张量的最后一个维度由768维(config.n_embd)投影为
         # 词典大小维度(config.vocab_size)的输出层, 此时hidden_states张量的形状将会由(batch_size, 1, n_embed)投影变为
-        # lm_logits张量的(batch_size, 1, vocab_size). 呸！[1, 1, 1024, 21128]
+        # lm_logits张量的(batch_size, 1, vocab_size). 呸！[batch_size, 1, 1024, 21128]
         self.lm_head=nn.Linear(config.n_embd,config.vocab_size,bias=False)
         self.init_weights()
     

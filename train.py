@@ -7,17 +7,18 @@ import logging
 from transformers import GPT2Config,GPT2LMHeadModel,BertTokenizer,AdamW, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from tqdm import tqdm, trange
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from model import  MyGPT2LMHeadModel
 from data_set import GPT2Dataset
+from rouge import Rouge
 
-# logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-#                     datefmt='%m/%d/%Y %H:%M:%S',
-#                     level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def train(model,device,train_data,test_data,args):
-    # tb_write=SummaryWriter()
+    tb_write=SummaryWriter()
     if args.gradient_accumulation_steps<1:
         raise ValueError("Gradient accumulation参数")
     train_batch_size=int(args.train_batch_size/args.gradient_accumulation_steps)
@@ -47,8 +48,8 @@ def train(model,device,train_data,test_data,args):
     for iepoch in trange(0, int(args.num_train_epochs), desc="Epoch", disable=False):
         iter_bar = tqdm(train_data_loader, desc="Iter (loss=X.XXX)", disable=False)
         for step, batch in enumerate(iter_bar):
-            input_ids = batch["input_ids"].to(device)
-            token_type_ids = batch["token_type_ids"].to(device)
+            input_ids = batch["input_ids"].reshape(train_batch_size,args.n_ctx).to(device)
+            token_type_ids = batch["token_type_ids"].reshape(train_batch_size,args.n_ctx).to(device)
             # 获取训练结果
             outputs = model.forward(input_ids=input_ids, token_type_ids=token_type_ids, labels=input_ids, title_id=title_id)
             loss = outputs[0]
@@ -79,12 +80,11 @@ def train(model,device,train_data,test_data,args):
                     tb_write.add_scalar("test_loss", eval_loss, global_step)
                     model.train()
 
-            lm_logits=outputs[1]
-            print(lm_logits.shape,input_ids.shape)
         # 每个epoch进行完，则保存模型
-        output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
-        model_to_save = model.module if hasattr(model, "module") else model
-        model_to_save.save_pretrained(output_dir)
+        if iepoch%10==0:
+            output_dir = os.path.join(args.output_dir, "checkpoint-{}".format(global_step))
+            model_to_save = model.module if hasattr(model, "module") else model
+            model_to_save.save_pretrained(output_dir)
         # 清空cuda缓存
         torch.cuda.empty_cache()
 
@@ -98,30 +98,64 @@ def evaluate(model, device, test_data, args):
         args: 训练参数配置信息
     Returns:
     """
+    tokenizer=BertTokenizer.from_pretrained(args.vocab_path)
+    length=40
     # 构造测试集的DataLoader
     test_sampler = SequentialSampler(test_data)
     test_data_loader = DataLoader(test_data, sampler=test_sampler,
-                                  batch_size=args.test_batch_size, collate_fn=collate_func)
+                                  batch_size=args.test_batch_size)
     iter_bar = tqdm(test_data_loader, desc="iter", disable=False)
     title_id = 1            #....................
-    total_loss, total = 0.0, 0.0
-    # 进行测试
-    for step, batch in enumerate(iter_bar):
-        # 模型设为eval
-        model.eval()
-        with torch.no_grad():
-            input_ids = batch["input_ids"].to(device)
-            token_type_ids = batch["token_type_ids"].to(device)
-            # 获取预测结果
-            outputs = model.forward(input_ids=input_ids, token_type_ids=token_type_ids, labels=input_ids, title_id=title_id)
-            loss = outputs[0]
-            loss = loss.item()
-            # 对loss进行累加
-            total_loss += loss*len(batch["input_ids"])
-            total += len(batch["input_ids"])
-    # 计算最终测试集的loss结果
-    test_loss = total_loss / total
-    return test_loss
+
+    repetition_penalty=1.2
+    unk_id = tokenizer.convert_tokens_to_ids("[UNK]")
+    sep_id = tokenizer.convert_tokens_to_ids("[SEP]")
+    model.eval()
+
+    rougescore1=[]
+    rougescore2=[]
+    rougescorel=[]
+    with torch.no_grad():
+        for idx in range(len(test_data)):
+            token_type_id = test_data[idx]["token_type_ids"].reshape(args.max_len,)
+            input_id=test_data[idx]["input_ids"].reshape(args.max_len,)
+            for j in range(args.max_len):
+                if token_type_id[j]==1:
+                    break
+            for k in range(j,args.max_len):
+                if token_type_id[k]==0:
+                    break
+            label_id=input_id[j:k].contiguous()
+            input_id=input_id[:j].contiguous()
+
+            generated_ids=[]
+            for _ in range(length):
+                # 获取预测结果
+                outputs = model.forward(input_ids=input_id)
+                # 获取预测文本
+                next_token_logits = outputs[0][-1,:]
+                already_token_ids =set([ids for ids in generated_ids])
+                for token_id in already_token_ids:
+                    next_token_logits[token_id] /= repetition_penalty
+                
+                next_token_logits[unk_id] = -float("Inf")
+                filter_logits = top_k_top_p_filtering(next_token_logits)
+                next_tokens = torch.multinomial(F.softmax(filter_logits, dim=-1), num_samples=1)   #multinomial对张量的每一行进行num_samples次取样
+                if next_tokens==sep_id:
+                    break
+                generated_ids.append(next_tokens.item())
+                input_ids = torch.cat((input_id, next_tokens), dim=-1)
+                if len(input_id)>=1024:
+                    input_id=input_id[-1023:]  
+            predict="".join(tokenizer.convert_ids_to_tokens(generated_ids)).replace("##", "").replace("[SEP]", " ").replace("[UNK]", "") 
+            label="".join(tokenizer.convert_ids_to_tokens(label_id)).replace("##", "").replace("[UNK]", "").replace("[SEP]", " ")  
+            
+            rouge = Rouge()
+            rouge_score = rouge.get_scores(predict, label)
+            rougescore1.append(rouge_score[0]["rouge-1"]['f'])
+            rougescore2.append(rouge_score[0]["rouge-2"]['f'])
+            rougescorel.append(rouge_score[0]["rouge-l"]['f'])
+    return (sum(rouge_score1)/len(rouge_score1),sum(rouge_score2)/len(rouge_score2),sum(rouge_scorel)/len(rouge_scorel))
 
 def set_args():
     """设置训练模型所需参数"""
@@ -187,6 +221,27 @@ def main():
     # 开始训练
     train(model, device, train_data, test_data, args)
 
+
+
+def top_k_top_p_filtering(logits, filter_value=-float("Inf")):
+    
+    top_k=5
+    top_p=0.95
+    assert logits.dim() == 1   # logits的维度为1，size:[vocab_size]
+
+    top_k = min(top_k, logits.size(-1))
+    if top_k > 0:
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]    #< 后面表示的是topk里面最小的值
+        logits[indices_to_remove] = filter_value
+    if top_p > 0.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)      #[0.3,0.35,0.4,..,0.95,0.951,0.952,...1]
+        sorted_indices_to_remove = cumulative_probs > top_p                            #删除累积概率高于top_p的标记，[false,....,true,true,true,true,true]
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone() #不加省略号也可以，加是为了当生成多个结果时
+        sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = sorted_indices[sorted_indices_to_remove]    
+        logits[indices_to_remove] = filter_value
+    return logits
 
 if __name__ == '__main__':
     main()
